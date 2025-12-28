@@ -1,10 +1,11 @@
 #include <array>
 #include <cstdlib>
-#include <deque>
 #include <expected>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <string>
+#include <vector>
 
 enum class lex_error {};
 
@@ -21,9 +22,9 @@ public:
   token(enum lex_types type, std::string value) : type(type), value(value) {}
 };
 
-std::expected<std::deque<token>, lex_error>
+std::expected<std::vector<token>, lex_error>
 lex_code(const std::string &buffer) {
-  std::deque<token> result;
+  std::vector<token> result;
 
   for (unsigned int i = 0; i < buffer.length(); ++i) {
     enum lex_types type;
@@ -97,6 +98,27 @@ lex_code(const std::string &buffer) {
   return result;
 }
 
+class Node {
+public:
+  std::unique_ptr<Node> back;
+  std::unique_ptr<Node> left;
+  std::unique_ptr<Node> right;
+
+  Node(std::unique_ptr<Node> back, std::unique_ptr<Node> left,
+       std::unique_ptr<Node> right)
+      : back(std::move(back)), left(std::move(left)), right(std::move(right)) {}
+};
+
+enum class parse_error {};
+
+std::expected<std::unique_ptr<Node>, parse_error>
+pratt_parse(const std::vector<token> &buffer_lex) {
+  std::unique_ptr<Node> root =
+      std::make_unique<Node>(nullptr, nullptr, nullptr);
+
+  return std::move(root);
+}
+
 int main(int argc, char **argv) {
   if (argc <= 1) {
     std::cout << "ERR: You must provide a file as your first CLI argument!\n";
@@ -106,7 +128,7 @@ int main(int argc, char **argv) {
   std::ifstream file(argv[1]);
   std::string buffer{std::istreambuf_iterator<char>(file),
                      std::istreambuf_iterator<char>()};
-  std::deque<token> lexed_code;
+  std::vector<token> lexed_code;
   auto buffer_lex = lex_code(buffer);
   if (!buffer_lex.has_value()) {
     std::cout << "ERR: lexing interrupted by error: " << (int)buffer_lex.error()
@@ -114,12 +136,14 @@ int main(int argc, char **argv) {
     return EXIT_FAILURE;
   }
 
-  for (token t : *buffer_lex) {
-    std::cout << "Type: " << (int)t.type << "\nValue: " << t.value << '\n';
+  auto tree_root = pratt_parse(*buffer_lex);
+  if (!tree_root.has_value()) {
+    std::cout << "ERR: parsing interrupted by error: "
+              << (int)buffer_lex.error() << '\n';
+    return EXIT_FAILURE;
   }
 
-  // parser (linear -> pratt when needed)
-  // at the end of each statement, write to final product
+  // evaluate starting from *tree_root node
 
   return EXIT_SUCCESS;
 }
