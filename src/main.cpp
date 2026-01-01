@@ -60,20 +60,6 @@ lex_code(const std::string &buffer) {
       }
     }
 
-    bool found_matching_multi_character_symbol = false;
-    for (std::string n : multi_character_symbols) {
-      if (n == buffer.substr(i, n.length())) {
-        type = lex_types::MULTI_CHARACTER_SYMBOL;
-        value = n;
-        result.push_back({type, value});
-        found_matching_multi_character_symbol = true;
-        break;
-      }
-    }
-
-    if (found_matching_multi_character_symbol)
-      continue;
-
     if ((buffer[i] >= '0' && buffer[i] <= '9') ||
         (buffer[i] >= 'A' && buffer[i] <= 'Z') ||
         (buffer[i] >= 'a' && buffer[i] <= 'z') || (buffer[i] == '_')) {
@@ -89,6 +75,20 @@ lex_code(const std::string &buffer) {
       result.push_back({type, value});
       continue;
     }
+
+    bool found_matching_multi_character_symbol = false;
+    for (std::string n : multi_character_symbols) {
+      if (n == buffer.substr(i, n.length())) {
+        type = lex_types::MULTI_CHARACTER_SYMBOL;
+        value = n;
+        result.push_back({type, value});
+        found_matching_multi_character_symbol = true;
+        break;
+      }
+    }
+
+    if (found_matching_multi_character_symbol)
+      continue;
 
     type = lex_types::SYMBOL;
     value += buffer[i];
@@ -112,9 +112,12 @@ public:
 enum class parse_error {};
 
 std::expected<std::unique_ptr<Node>, parse_error>
-pratt_parse(const std::vector<token> &buffer_lex) {
+parse(const std::vector<token> &buffer_lex) {
   std::unique_ptr<Node> root =
       std::make_unique<Node>(nullptr, nullptr, nullptr);
+  for (int i = 0; i < buffer_lex.size(); ++i) {
+    const token &current = buffer_lex[i];
+  }
 
   return std::move(root);
 }
@@ -136,7 +139,7 @@ int main(int argc, char **argv) {
     return EXIT_FAILURE;
   }
 
-  auto tree_root = pratt_parse(*buffer_lex);
+  auto tree_root = parse(*buffer_lex);
   if (!tree_root.has_value()) {
     std::cout << "ERR: parsing interrupted by error: "
               << (int)buffer_lex.error() << '\n';

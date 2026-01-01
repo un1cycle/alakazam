@@ -1,2 +1,2 @@
-# un1-C
-My personal dialect of C
+# un1
+Language for x86_64 kernel development.
