@@ -6,6 +6,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+// #include <unordered_map>
 
 enum class lex_error {};
 
@@ -33,12 +34,18 @@ lex_code(const std::string &buffer) {
     if (buffer.substr(i, 2) == "//") {
       while (i != buffer.length() && buffer[i] != '\n')
         ++i;
+      if (i == buffer.length())
+        break;
+      --i;
       continue;
     }
 
     if (buffer.substr(i, 2) == "/*") {
       while (i != buffer.length() && buffer.substr(i, 2) != "*/")
         ++i;
+      ++i; // to move past the rest of the comment symbol
+      if (i == buffer.length())
+        break;
       continue;
     }
 
@@ -56,7 +63,10 @@ lex_code(const std::string &buffer) {
             type = lex_types::FLOAT;
 
         result.push_back({type, value});
+        --i;
         continue;
+      } else {
+        --i; // to move back for the dot
       }
     }
 
@@ -73,6 +83,7 @@ lex_code(const std::string &buffer) {
 
       type = lex_types::WORD;
       result.push_back({type, value});
+      --i;
       continue;
     }
 
@@ -83,12 +94,17 @@ lex_code(const std::string &buffer) {
         value = n;
         result.push_back({type, value});
         found_matching_multi_character_symbol = true;
+        i += n.length() - 1;
         break;
       }
     }
 
     if (found_matching_multi_character_symbol)
       continue;
+
+    if (buffer[i] == ' ') {
+      continue;
+    }
 
     type = lex_types::SYMBOL;
     value += buffer[i];
@@ -100,26 +116,121 @@ lex_code(const std::string &buffer) {
 
 class Node {
 public:
-  std::unique_ptr<Node> back;
+  Node *back;
   std::unique_ptr<Node> left;
   std::unique_ptr<Node> right;
 
-  Node(std::unique_ptr<Node> back, std::unique_ptr<Node> left,
-       std::unique_ptr<Node> right)
-      : back(std::move(back)), left(std::move(left)), right(std::move(right)) {}
+  std::array<std::string, 1>
+      attributes; // this should be an array of enums, using a
+                  // string for convenience currently
+
+  Node(Node *back, std::unique_ptr<Node> left, std::unique_ptr<Node> right)
+      : back(back), left(std::move(left)), right(std::move(right)) {}
 };
 
-enum class parse_error {};
+enum class parse_error {
+  NO_MATCH_FOUND = 100,
+  UNBALANCED_BRACES,
+  // pratt errors = 200 in this same enum
+};
+
+// enum class types {
+//   I32,
+//   I64,
+//   F32,
+//   F64,
+//   CHAR,
+//   STRING,
+//   BOOL,
+//   I32_p,
+//   I64_p,
+//   F32_p,
+//   F64_p,
+//   CHAR_p,
+//   STRING_p,
+//   BOOL_p
+// }; // _p means pointer
+//
+// const std::unordered_map<std::string, bool> is_allowed_in_pratt_parse_map{
+//     {"+", true}, {"-", true}};
+//
+// bool is_allowed_in_pratt_parse(const std::string &symbol) {
+//   if (is_allowed_in_pratt_parse_map.count(symbol) == 0)
+//     return false;
+//   return true;
+// }
 
 std::expected<std::unique_ptr<Node>, parse_error>
-parse(const std::vector<token> &buffer_lex) {
-  std::unique_ptr<Node> root =
-      std::make_unique<Node>(nullptr, nullptr, nullptr);
+pratt_parse(std::unique_ptr<Node> root, const std::vector<token> &buffer_lex) {
   for (int i = 0; i < buffer_lex.size(); ++i) {
-    const token &current = buffer_lex[i];
   }
 
   return std::move(root);
+}
+
+std::expected<std::unique_ptr<Node>, parse_error>
+parse(std::unique_ptr<Node> root, const std::vector<token> &buffer_lex,
+      int index_begin) {
+  for (int i = index_begin; i < buffer_lex.size(); ++i) {
+    // C doesn't allow {} in its conditionals meaning that we can just use that
+    // as a range
+    if (buffer_lex[i].type == lex_types::WORD && buffer_lex[i].value == "if") {
+      std::vector<token> temp_buffer = {};
+      i++;
+      while (buffer_lex[i].value != "{") {
+        if (i >= buffer_lex.size())
+          return std::unexpected(parse_error::UNBALANCED_BRACES);
+        temp_buffer.push_back(
+            buffer_lex[i]); // means you didn't open if statement code
+        i++;
+      } // now buffer_lex[i].value == "{"
+
+      root->attributes = {
+          "if"}; // root->left->left should be conditional, root->left->right
+                 // should be code, root->right should be rest of code
+      root->left = std::make_unique<Node>(
+          root.get(), std::make_unique<Node>(nullptr, nullptr, nullptr),
+          std::make_unique<Node>(nullptr, nullptr, nullptr));
+      auto conditional_result =
+          pratt_parse(std::move(root->left->left), temp_buffer);
+      if (!conditional_result.has_value()) {
+        return std::unexpected(conditional_result.error());
+      }
+
+      root->left->left = std::move(*conditional_result);
+
+      temp_buffer = {};
+      i++;
+      int bracket_count = 1;
+      while (bracket_count != 0) {
+        if (i >= buffer_lex.size())
+          return std::unexpected(parse_error::UNBALANCED_BRACES);
+        if (buffer_lex[i].value == "{") // means overstepped buffer length
+          bracket_count++;
+        else if (buffer_lex[i].value == "}")
+          bracket_count--;
+
+        temp_buffer.push_back(buffer_lex[i]);
+        i++;
+      } // now buffer_lex[    i - 1   ].value == "}"
+
+      auto code_result = parse(std::move(root->left->right), temp_buffer, 0);
+      if (!code_result.has_value()) {
+        return std::unexpected(code_result.error());
+      }
+      root->left->right = std::move(*code_result);
+
+      root->right = std::make_unique<Node>(nullptr, nullptr, nullptr);
+      auto later_code_result = parse(std::move(root->right), buffer_lex, i);
+      if (!later_code_result.has_value()) {
+        return std::unexpected(later_code_result.error());
+      }
+      root->right = std::move(*later_code_result);
+
+      return std::move(root);
+    }
+  }
+  return std::unexpected(parse_error::NO_MATCH_FOUND);
 }
 
 int main(int argc, char **argv) {
@@ -139,14 +250,16 @@ int main(int argc, char **argv) {
     return EXIT_FAILURE;
   }
 
-  auto tree_root = parse(*buffer_lex);
-  if (!tree_root.has_value()) {
+  std::unique_ptr<Node> initial_root =
+      std::make_unique<Node>(nullptr, nullptr, nullptr);
+  auto evaluated_root = parse(std::move(initial_root), *buffer_lex, 0);
+  if (!evaluated_root.has_value()) {
     std::cout << "ERR: parsing interrupted by error: "
-              << (int)buffer_lex.error() << '\n';
+              << (int)evaluated_root.error() << '\n';
     return EXIT_FAILURE;
   }
 
-  // evaluate starting from *tree_root node
+  // evaluate starting from *evaluated_root node
 
   return EXIT_SUCCESS;
 }
